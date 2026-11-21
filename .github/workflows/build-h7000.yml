@@ -1,0 +1,59 @@
+name: build-h7000
+
+on:
+  workflow_dispatch:
+    inputs:
+      src_ref:
+        description: 'source ref (branch/tag of jsz0402-hash/edk2-msm)'
+        required: false
+        default: 'master'
+      build_mode:
+        description: 'RELEASE or DEBUG'
+        required: false
+        default: 'RELEASE'
+      out_name:
+        description: 'artifact name'
+        required: false
+        default: 'boot-h7000'
+
+jobs:
+  build-h7000:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    steps:
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential uuid-dev iasl nasm python3 python-is-python3 \
+            git gcc-aarch64-linux-gnu acpica-tools mtools dosfstools \
+            device-tree-compiler gettext bc bison flex libssl-dev \
+            libelf-dev zip clang llvm lld abootimg
+
+      - name: Clone source (with submodules)
+        run: |
+          set -x
+          git clone --depth 1 --branch "${{ inputs.src_ref }}" https://github.com/jsz0402-hash/edk2-msm.git src
+          cd src
+          git log --oneline -3
+          git submodule update --init --force --depth 1 --recursive || git submodule update --init --recursive
+          grep -n "PmicDxe\|UsbConfigDxe" Platform/Qualcomm/sdm660/dxe.fdf.inc | head -20 || true
+          ls Platform/Bbkedu/sdm660/UsbProbeDxe/ 2>/dev/null || true
+
+      - name: Build boot-h7000.img
+        working-directory: src
+        run: |
+          set -o pipefail
+          chmod +x build.sh || true
+          ./build.sh --device h7000 -r "${{ inputs.build_mode }}" 2>&1 | tee build.log
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ inputs.out_name }}
+          path: |
+            src/boot-*.img
+            src/build.log
+          if-no-files-found: warn
+          retention-days: 5
